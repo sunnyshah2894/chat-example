@@ -1,10 +1,14 @@
 var app = require('express')();
+var express = require('express');
 var http = require('http').Server(app);
 var fs = require('fs');
 var mongoose = require('mongoose');
 
-var bodyParser= require('body-parser')
-app.use(bodyParser.urlencoded({extended: true}))
+var bodyParser= require('body-parser');
+app.use(bodyParser.urlencoded({extended: true}));
+app.use(express.static('node_modules'));
+app.use(express.static('css'));
+app.use(express.static('js'));
 
 // var Author = require('./author');
 // var Book = require('./book');
@@ -32,6 +36,30 @@ app.get('/', function(req, res){
 
 app.get('/admin', function(req, res){
   res.sendFile(__dirname + '/admin.html');
+});
+
+app.post('/admin/addNewRoom', (req,res) => {
+
+  var adminRoomName = req.body.adminRoomName;
+  var clientRoomName = req.body.clientRoomName;
+  var adminId = req.body.adminID;
+
+  var newRoom = new Room({
+    _id: new mongoose.Types.ObjectId(),
+    clientRoomName: clientRoomName,
+    adminRoomName: adminRoomName,
+    admin: adminId
+  });
+
+  newRoom.save(function(err,data){
+      /* if admin undefined handle the event */
+        Room.find({admin: adminId}).select('adminRoomName _id').exec(function(err,rooms){
+          console.log(rooms);
+          socket.emit("getRooms",rooms);
+
+        });
+  });
+
 });
 
 app.post('/admin/publishQuestion', (req, res) => {
@@ -70,15 +98,12 @@ app.post('/admin/publishQuestion', (req, res) => {
 
         console.log('New Question successfully saved.' + data);
         console.log("client room to publish - "+clientRoomName.clientRoomName);
-        io.sockets.in(clientRoomName.clientRoomName).emit("message",data);
+        io.sockets.in(clientRoomName.clientRoomName).emit("questionAvailable",data);
     });
 
   });
 })
 
-app.get('/admin/getMyRooms', function(req,res){
-
-});
 
 io.sockets.on('connection', function (socket, username) {
     // When the client connects, they are sent a message
@@ -95,13 +120,16 @@ io.sockets.on('connection', function (socket, username) {
       .exec(function(err, admin){
         if(!admin) return;
         console.log("admin: "+ admin._id);
+        socket.emit("adminId",admin._id);
         console.log(admin);
+        if( admin ){
         /* if admin undefined handle the event */
             Room.find({admin: admin._id}).select('adminRoomName _id').exec(function(err,rooms){
               console.log(rooms);
               socket.emit("getRooms",rooms);
 
             });
+          }
       });
 
     });
@@ -135,12 +163,17 @@ io.sockets.on('connection', function (socket, username) {
         console.log(roomName);
 
         Room.findOne({clientRoomName:roomName}).select('_id').exec(function(err,roomDetails){
+          if(roomDetails){
             console.log("roomID = "+roomDetails._id + " roomname = " + roomName);
             socket.leave(socket.room);
             socket.join(roomName);
             socket.room = roomName;
             socket.roomID = roomDetails._id;
             socket.emit('message','You are connected to '+ roomName);
+          }
+          else{
+            socket.emit('refresh', "The room is not Avalaible" );
+          }
 
         });
     });
